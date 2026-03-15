@@ -14,11 +14,13 @@ import { motion } from "motion/react";
 import { toast } from "sonner";
 import Footer from "../components/Footer";
 import Navbar from "../components/Navbar";
+import { useActor } from "../hooks/useActor";
 import { getOrder, updateOrderStatus } from "../utils/orders";
 
 export default function PaymentPage() {
   const navigate = useNavigate();
   const { orderId } = useParams({ from: "/payment/$orderId" });
+  const { actor: backend } = useActor();
   const order = getOrder(orderId);
 
   function copyToClipboard(text: string, label: string) {
@@ -27,8 +29,19 @@ export default function PaymentPage() {
       .then(() => toast.success(`${label} copied!`));
   }
 
-  function handleYes() {
+  async function handleYes() {
+    // Update local state
     updateOrderStatus(orderId, "Processing");
+
+    // Update backend (graceful degradation)
+    try {
+      if (backend && order?.backendId) {
+        await backend.confirmPayment(BigInt(order.backendId));
+      }
+    } catch {
+      // Continue even if backend fails
+    }
+
     toast.success("Payment confirmed! Redirecting to tracking...");
     setTimeout(
       () => navigate({ to: "/tracking/$orderId", params: { orderId } }),

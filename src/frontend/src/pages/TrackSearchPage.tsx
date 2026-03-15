@@ -3,7 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useNavigate } from "@tanstack/react-router";
-import { Package2, Search } from "lucide-react";
+import { Loader2, Package2, Search } from "lucide-react";
 import { motion } from "motion/react";
 import { useState } from "react";
 import Footer from "../components/Footer";
@@ -14,8 +14,9 @@ export default function TrackSearchPage() {
   const navigate = useNavigate();
   const [orderId, setOrderId] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  function handleTrack(e: React.FormEvent) {
+  async function handleTrack(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     const trimmed = orderId.trim().toUpperCase();
@@ -23,14 +24,22 @@ export default function TrackSearchPage() {
       setError("Please enter an Order ID.");
       return;
     }
-    const order = getOrder(trimmed);
-    if (!order) {
+
+    setLoading(true);
+    try {
+      // Check localStorage (which is synced from backend when order is placed)
+      const localOrder = getOrder(trimmed);
+      if (localOrder) {
+        navigate({ to: "/tracking/$orderId", params: { orderId: trimmed } });
+        return;
+      }
+
       setError(
         `No order found with ID "${trimmed}". Please check and try again.`,
       );
-      return;
+    } finally {
+      setLoading(false);
     }
-    navigate({ to: "/tracking/$orderId", params: { orderId: trimmed } });
   }
 
   return (
@@ -77,10 +86,15 @@ export default function TrackSearchPage() {
                 <Button
                   type="submit"
                   className="w-full bg-primary text-primary-foreground font-semibold"
+                  disabled={loading}
                   data-ocid="track.submit_button"
                 >
-                  <Search className="mr-2 w-4 h-4" />
-                  Track Shipment
+                  {loading ? (
+                    <Loader2 className="mr-2 w-4 h-4 animate-spin" />
+                  ) : (
+                    <Search className="mr-2 w-4 h-4" />
+                  )}
+                  {loading ? "Searching..." : "Track Shipment"}
                 </Button>
               </form>
             </CardContent>

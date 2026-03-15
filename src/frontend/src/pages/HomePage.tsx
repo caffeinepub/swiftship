@@ -17,15 +17,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { useNavigate } from "@tanstack/react-router";
 import {
   ChevronRight,
   Clock,
+  Loader2,
   Mail,
   MapPin,
   Moon,
   Package,
   Phone,
+  Send,
   Shield,
   Star,
   Truck,
@@ -33,8 +36,10 @@ import {
 } from "lucide-react";
 import { motion } from "motion/react";
 import { useRef, useState } from "react";
+import { toast } from "sonner";
 import Footer from "../components/Footer";
 import Navbar from "../components/Navbar";
+import { useActor } from "../hooks/useActor";
 import {
   calculatePrice,
   generateOrderId,
@@ -115,6 +120,54 @@ const FAQS = [
 export default function HomePage() {
   const navigate = useNavigate();
   const bookingRef = useRef<HTMLDivElement>(null);
+  const { actor: backend } = useActor();
+
+  const [contactForm, setContactForm] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    subject: "",
+    message: "",
+  });
+  const [contactSubmitting, setContactSubmitting] = useState(false);
+  const [contactSuccess, setContactSuccess] = useState(false);
+
+  async function handleContactSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!contactForm.name || !contactForm.email || !contactForm.message) {
+      toast.error("Please fill in required fields.");
+      return;
+    }
+    setContactSubmitting(true);
+    try {
+      if (backend) {
+        await backend.submitServiceRequest(
+          contactForm.name,
+          contactForm.email,
+          contactForm.phone,
+          contactForm.message,
+        );
+      }
+      setContactSuccess(true);
+      setContactForm({
+        name: "",
+        email: "",
+        phone: "",
+        subject: "",
+        message: "",
+      });
+      toast.success("Message sent! We'll get back to you soon.");
+    } catch {
+      toast.error("Failed to send message. Please try again.");
+    } finally {
+      setContactSubmitting(false);
+    }
+  }
+
+  function setContactField(key: string, value: string) {
+    setContactForm((prev) => ({ ...prev, [key]: value }));
+    setContactSuccess(false);
+  }
 
   const [quoteWeight, setQuoteWeight] = useState("");
   const [quoteService, setQuoteService] = useState("Standard");
@@ -160,13 +213,16 @@ export default function HomePage() {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitting(true);
     const orderId = generateOrderId();
     const weight = Number.parseFloat(form.weight) || 0;
     const price = calculatePrice(weight, form.serviceType, form.insurance);
     const estimatedDelivery = getEstimatedDelivery(form.serviceType);
+    const createdAt = new Date().toISOString();
+
+    // Save locally first (for immediate confirmation page access)
     saveOrder({
       orderId,
       senderName: form.senderName,
@@ -192,14 +248,61 @@ export default function HomePage() {
       serviceType: form.serviceType,
       insurance: form.insurance,
       status: "Placed",
-      createdAt: new Date().toISOString(),
+      createdAt,
       estimatedDelivery,
       price,
     });
-    setTimeout(() => {
-      setSubmitting(false);
-      navigate({ to: "/order-confirmation/$orderId", params: { orderId } });
-    }, 800);
+
+    // Persist to backend canister (graceful degradation)
+    try {
+      if (backend) {
+        const backendId = await backend.createOrder(
+          form.senderName,
+          form.senderAddress,
+          form.senderCity,
+          form.senderState,
+          form.senderZip,
+          form.senderPhone,
+          form.senderEmail,
+          form.receiverName,
+          form.receiverAddress,
+          form.receiverCity,
+          form.receiverState,
+          form.receiverZip,
+          form.receiverPhone,
+          form.receiverEmail,
+          Number.parseFloat(form.weight) || 0,
+          Number.parseFloat(form.length) || 0,
+          Number.parseFloat(form.width) || 0,
+          Number.parseFloat(form.height) || 0,
+          form.packageType,
+          form.description,
+          form.serviceType,
+          form.insurance,
+          price,
+        );
+        // Store backend bigint id for real-time tracking
+        const { updateOrderFull } = await import("../utils/orders");
+        updateOrderFull(orderId, { backendId: backendId.toString() });
+        // Register user profile if they have a name/email
+        if (form.senderName && form.senderEmail) {
+          try {
+            await backend.saveCallerUserProfile({
+              name: form.senderName,
+              email: form.senderEmail,
+              phone: form.senderPhone,
+            });
+          } catch {
+            // Not critical
+          }
+        }
+      }
+    } catch {
+      // Still navigate even if backend fails
+    }
+
+    setSubmitting(false);
+    navigate({ to: "/order-confirmation/$orderId", params: { orderId } });
   }
 
   return (
@@ -767,41 +870,172 @@ export default function HomePage() {
 
       {/* Contact */}
       <section id="contact" className="py-20 bg-muted/50">
-        <div className="container mx-auto px-4 max-w-3xl text-center">
-          <h2 className="font-display text-3xl font-bold text-foreground mb-4">
-            Get In Touch
-          </h2>
-          <p className="text-muted-foreground mb-10">
-            Have questions? Our team is ready to help 24/7.
-          </p>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {[
-              {
-                icon: <MapPin className="w-6 h-6 text-accent" />,
-                label: "Address",
-                value: "350 Fifth Avenue, Suite 4100, New York, NY 10118",
-              },
-              {
-                icon: <Phone className="w-6 h-6 text-accent" />,
-                label: "Phone",
-                value: "+1 (212) 555-7469",
-              },
-              {
-                icon: <Mail className="w-6 h-6 text-accent" />,
-                label: "Email",
-                value: "hello@swiftship.com",
-              },
-            ].map((c) => (
-              <Card key={c.label}>
-                <CardContent className="pt-6 flex flex-col items-center gap-2">
-                  {c.icon}
-                  <div className="font-semibold text-sm text-muted-foreground">
-                    {c.label}
+        <div className="container mx-auto px-4 max-w-5xl">
+          <div className="text-center mb-10">
+            <h2 className="font-display text-3xl font-bold text-foreground mb-4">
+              Get In Touch
+            </h2>
+            <p className="text-muted-foreground">
+              Have questions? Our team is ready to help 24/7.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+            {/* Contact info */}
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 gap-4">
+                {[
+                  {
+                    icon: <MapPin className="w-6 h-6 text-accent" />,
+                    label: "Address",
+                    value: "350 Fifth Avenue, Suite 4100, New York, NY 10118",
+                  },
+                  {
+                    icon: <Phone className="w-6 h-6 text-accent" />,
+                    label: "Phone",
+                    value: "+1 (212) 555-7469",
+                  },
+                  {
+                    icon: <Mail className="w-6 h-6 text-accent" />,
+                    label: "Email",
+                    value: "swiftshipcustomeroutreach@gmail.com",
+                  },
+                ].map((c) => (
+                  <Card key={c.label}>
+                    <CardContent className="pt-5 flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center flex-shrink-0">
+                        {c.icon}
+                      </div>
+                      <div>
+                        <div className="font-semibold text-xs text-muted-foreground uppercase tracking-wider">
+                          {c.label}
+                        </div>
+                        <div className="font-medium text-sm mt-0.5">
+                          {c.value}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+
+            {/* Service Request Form */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="font-display text-xl">
+                  Send a Message
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {contactSuccess ? (
+                  <div
+                    className="text-center py-8"
+                    data-ocid="contact.success_state"
+                  >
+                    <div className="w-14 h-14 rounded-full bg-success/10 flex items-center justify-center mx-auto mb-4">
+                      <Send className="w-7 h-7 text-success" />
+                    </div>
+                    <h3 className="font-display text-lg font-bold text-foreground mb-2">
+                      Message Sent!
+                    </h3>
+                    <p className="text-muted-foreground text-sm">
+                      We'll get back to you within 24 hours.
+                    </p>
+                    <Button
+                      variant="outline"
+                      className="mt-4"
+                      onClick={() => setContactSuccess(false)}
+                    >
+                      Send Another
+                    </Button>
                   </div>
-                  <div className="font-medium text-sm">{c.value}</div>
-                </CardContent>
-              </Card>
-            ))}
+                ) : (
+                  <form onSubmit={handleContactSubmit} className="space-y-4">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label htmlFor="contact-name">Name *</Label>
+                        <Input
+                          id="contact-name"
+                          value={contactForm.name}
+                          onChange={(e) =>
+                            setContactField("name", e.target.value)
+                          }
+                          placeholder="Your full name"
+                          className="mt-1"
+                          data-ocid="contact.name.input"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="contact-phone">Phone</Label>
+                        <Input
+                          id="contact-phone"
+                          value={contactForm.phone}
+                          onChange={(e) =>
+                            setContactField("phone", e.target.value)
+                          }
+                          placeholder="+1 (555) 000-0000"
+                          className="mt-1"
+                          data-ocid="contact.phone.input"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <Label htmlFor="contact-email">Email *</Label>
+                      <Input
+                        id="contact-email"
+                        type="email"
+                        value={contactForm.email}
+                        onChange={(e) =>
+                          setContactField("email", e.target.value)
+                        }
+                        placeholder="your@email.com"
+                        className="mt-1"
+                        data-ocid="contact.email.input"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="contact-subject">Subject</Label>
+                      <Input
+                        id="contact-subject"
+                        value={contactForm.subject}
+                        onChange={(e) =>
+                          setContactField("subject", e.target.value)
+                        }
+                        placeholder="How can we help?"
+                        className="mt-1"
+                        data-ocid="contact.subject.input"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="contact-message">Message *</Label>
+                      <Textarea
+                        id="contact-message"
+                        value={contactForm.message}
+                        onChange={(e) =>
+                          setContactField("message", e.target.value)
+                        }
+                        placeholder="Describe your request or question..."
+                        className="mt-1 min-h-[100px]"
+                        data-ocid="contact.message.textarea"
+                      />
+                    </div>
+                    <Button
+                      type="submit"
+                      className="w-full bg-primary text-primary-foreground font-semibold"
+                      disabled={contactSubmitting}
+                      data-ocid="contact.submit_button"
+                    >
+                      {contactSubmitting ? (
+                        <Loader2 className="mr-2 w-4 h-4 animate-spin" />
+                      ) : (
+                        <Send className="mr-2 w-4 h-4" />
+                      )}
+                      {contactSubmitting ? "Sending..." : "Send Message"}
+                    </Button>
+                  </form>
+                )}
+              </CardContent>
+            </Card>
           </div>
         </div>
       </section>

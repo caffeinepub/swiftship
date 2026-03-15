@@ -10,7 +10,111 @@ import type { ActorMethod } from '@icp-sdk/core/agent';
 import type { IDL } from '@icp-sdk/core/candid';
 import type { Principal } from '@icp-sdk/core/principal';
 
-export interface _SERVICE {}
+export interface Notification {
+  'id' : bigint,
+  'orderId' : [] | [bigint],
+  'message' : string,
+  'timestamp' : Time,
+}
+export interface Order {
+  'weight' : number,
+  'height' : number,
+  'status' : string,
+  'packageType' : string,
+  'senderPhone' : string,
+  'serviceType' : string,
+  'receiverZip' : string,
+  'paymentConfirmed' : boolean,
+  'owner' : Principal,
+  'createdAt' : Time,
+  'estimatedDelivery' : Time,
+  'description' : string,
+  'insurance' : boolean,
+  'orderId' : bigint,
+  'receiverCity' : string,
+  'deliveryLocation' : [] | [[number, number]],
+  'receiverName' : string,
+  'receiverEmail' : string,
+  'length' : number,
+  'senderCity' : string,
+  'senderZip' : string,
+  'senderName' : string,
+  'receiverState' : string,
+  'receiverAddress' : string,
+  'senderEmail' : string,
+  'price' : number,
+  'width' : number,
+  'senderState' : string,
+  'senderAddress' : string,
+  'receiverPhone' : string,
+}
+export interface ServiceRequest {
+  'id' : bigint,
+  'name' : string,
+  'email' : string,
+  'message' : string,
+  'timestamp' : Time,
+  'phone' : string,
+}
+export type Time = bigint;
+export interface User { 'name' : string, 'email' : string, 'phone' : string }
+export interface UserProfile {
+  'name' : string,
+  'email' : string,
+  'phone' : string,
+}
+export type UserRole = { 'admin' : null } |
+  { 'user' : null } |
+  { 'guest' : null };
+export interface _SERVICE {
+  '_initializeAccessControlWithSecret' : ActorMethod<[string], undefined>,
+  'assignCallerUserRole' : ActorMethod<[Principal, UserRole], undefined>,
+  'confirmPayment' : ActorMethod<[bigint], undefined>,
+  'createOrder' : ActorMethod<
+    [
+      string,
+      string,
+      string,
+      string,
+      string,
+      string,
+      string,
+      string,
+      string,
+      string,
+      string,
+      string,
+      string,
+      string,
+      number,
+      number,
+      number,
+      number,
+      string,
+      string,
+      string,
+      boolean,
+      number,
+    ],
+    bigint
+  >,
+  'getAllNotifications' : ActorMethod<[], Array<Notification>>,
+  'getAllOrders' : ActorMethod<[], Array<Order>>,
+  'getCallerUserProfile' : ActorMethod<[], [] | [UserProfile]>,
+  'getCallerUserRole' : ActorMethod<[], UserRole>,
+  'getOrder' : ActorMethod<[bigint], [] | [Order]>,
+  'getServiceRequests' : ActorMethod<[], Array<ServiceRequest>>,
+  'getUserProfile' : ActorMethod<[Principal], [] | [UserProfile]>,
+  'getUsers' : ActorMethod<[], Array<User>>,
+  'isCallerAdmin' : ActorMethod<[], boolean>,
+  'saveCallerUserProfile' : ActorMethod<[UserProfile], undefined>,
+  'submitServiceRequest' : ActorMethod<
+    [string, string, string, string],
+    undefined
+  >,
+  'updateOrder' : ActorMethod<[Order], undefined>,
+  'updateOrderStatus' : ActorMethod<[bigint, string], undefined>,
+}
 export declare const idlService: IDL.ServiceClass;
 export declare const idlInitArgs: IDL.Type[];
 export declare const idlFactory: IDL.InterfaceFactory;

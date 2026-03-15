@@ -24,68 +24,99 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import Footer from "../components/Footer";
 import Navbar from "../components/Navbar";
-import { getOrder, updateOrderStatus } from "../utils/orders";
+import { useActor } from "../hooks/useActor";
+import { getOrder, saveOrder, updateOrderFull } from "../utils/orders";
 import type { OrderData } from "../utils/orders";
 
 const STAGES = [
-  { key: "Placed", label: "Order Placed", icon: Package },
-  { key: "Processing", label: "Processing", icon: CheckCircle2 },
-  { key: "InTransit", label: "In Transit", icon: Truck },
-  { key: "OutForDelivery", label: "Out for Delivery", icon: MapPin },
+  { key: "Processing", label: "Processing", icon: Package },
+  { key: "In Transit", label: "In Transit", icon: Truck },
+  { key: "Out For Delivery", label: "Out for Delivery", icon: MapPin },
   { key: "Delivered", label: "Delivered", icon: Home },
 ];
 
 const STATUS_INDEX: Record<string, number> = {
+  // Local legacy
   Placed: 0,
-  Processing: 1,
-  InTransit: 2,
-  OutForDelivery: 3,
-  Delivered: 4,
+  // Backend statuses (exact match)
+  Processing: 0,
+  "In Transit": 1,
+  "Out For Delivery": 2,
+  Delivered: 3,
+  // Legacy alternate keys
+  InTransit: 1,
+  OutForDelivery: 2,
 };
 
 export default function TrackingPage() {
   const { orderId } = useParams({ from: "/tracking/$orderId" });
   const navigate = useNavigate();
+  const { actor: backend } = useActor();
   const [order, setOrder] = useState<OrderData | null>(
     getOrder(orderId) ?? null,
   );
-  const [delivered, setDelivered] = useState(false);
-
   const statusIndex = order ? (STATUS_INDEX[order.status] ?? 0) : 0;
+  const delivered = order?.status === "Delivered";
 
+  // Poll every 5 seconds — prefer backend (real-time), fall back to localStorage
   useEffect(() => {
-    if (!order || !orderId) return;
-    if (statusIndex >= 4) {
-      setDelivered(true);
-      return;
-    }
-    if (statusIndex < 1) return;
-
-    const sequence: Array<[string, number]> = [
-      ["InTransit", 3000],
-      ["OutForDelivery", 6000],
-      ["Delivered", 9000],
-    ];
-
-    const timers = sequence
-      .filter(([s]) => STATUS_INDEX[s] > statusIndex)
-      .map(([s, delay]) =>
-        setTimeout(() => {
-          updateOrderStatus(orderId, s);
-          const fresh = getOrder(orderId);
-          setOrder(fresh ?? null);
-          if (s === "Delivered") {
-            setDelivered(true);
-            toast.success(`🎉 Your package ${orderId} has been delivered!`, {
-              duration: 6000,
-              description: "Thank you for shipping with SwiftShip!",
+    async function poll() {
+      // Try backend if we have an actor and a backendId stored locally
+      const localOrder = getOrder(orderId);
+      if (backend && localOrder?.backendId) {
+        try {
+          const backendId = BigInt(localOrder.backendId);
+          const bo = await backend.getOrder(backendId);
+          if (bo) {
+            const mapped: OrderData = {
+              ...localOrder,
+              status: bo.status,
+              paymentConfirmed: bo.paymentConfirmed,
+            };
+            // Sync to localStorage cache
+            updateOrderFull(orderId, {
+              status: bo.status,
+              paymentConfirmed: bo.paymentConfirmed,
             });
+            setOrder((prev) => {
+              if (prev && prev.status !== mapped.status) {
+                const newStatus = mapped.status;
+                if (newStatus === "Delivered") {
+                  toast.success(
+                    `🎉 Your package ${orderId} has been delivered!`,
+                    {
+                      duration: 6000,
+                      description: "Thank you for shipping with SwiftShip!",
+                    },
+                  );
+                } else if (newStatus === "Out For Delivery") {
+                  toast.info("📦 Your package is out for delivery!", {
+                    duration: 4000,
+                  });
+                } else if (newStatus === "In Transit") {
+                  toast.info("🚚 Your package is now in transit!", {
+                    duration: 4000,
+                  });
+                }
+              }
+              return mapped;
+            });
+            return;
           }
-        }, delay),
-      );
+        } catch {
+          // Fall through to localStorage
+        }
+      }
+      // Fallback: localStorage
+      if (localOrder) {
+        setOrder(localOrder);
+      }
+    }
 
-    return () => timers.forEach(clearTimeout);
-  }, [statusIndex, orderId, order]);
+    poll();
+    const interval = setInterval(poll, 5000);
+    return () => clearInterval(interval);
+  }, [orderId, backend]);
 
   if (!order) {
     return (
@@ -185,7 +216,9 @@ export default function TrackingPage() {
                       </div>
                       <div className="mt-2 text-center">
                         <p
-                          className={`text-xs font-medium ${done ? "text-foreground" : "text-muted-foreground"}`}
+                          className={`text-xs font-medium ${
+                            done ? "text-foreground" : "text-muted-foreground"
+                          }`}
                         >
                           {stage.label}
                         </p>

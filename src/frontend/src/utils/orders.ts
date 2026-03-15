@@ -1,5 +1,6 @@
 export interface OrderData {
-  orderId: string;
+  orderId: string; // SS-XXXXXX local format
+  backendId?: string; // string representation of backend bigint id
   senderName: string;
   senderAddress: string;
   senderCity: string;
@@ -26,9 +27,19 @@ export interface OrderData {
   createdAt: string;
   estimatedDelivery: string;
   price: number;
+  paymentConfirmed: boolean;
+  deliveryLocation?: string;
+}
+
+export interface NotificationLogEntry {
+  orderId: string;
+  oldStatus: string;
+  newStatus: string;
+  timestamp: string;
 }
 
 const KEY = "swiftship_orders";
+const NOTIF_KEY = "swiftship_notifications";
 
 export function getOrders(): OrderData[] {
   try {
@@ -42,24 +53,67 @@ export function getOrder(orderId: string): OrderData | undefined {
   return getOrders().find((o) => o.orderId === orderId);
 }
 
-export function saveOrder(order: OrderData): void {
+export function saveOrder(
+  order: Omit<OrderData, "paymentConfirmed" | "deliveryLocation"> &
+    Partial<
+      Pick<OrderData, "paymentConfirmed" | "deliveryLocation" | "backendId">
+    >,
+): void {
   const orders = getOrders();
-  const idx = orders.findIndex((o) => o.orderId === order.orderId);
+  const toSave: OrderData = { paymentConfirmed: false, ...order };
+  const idx = orders.findIndex((o) => o.orderId === toSave.orderId);
   if (idx >= 0) {
-    orders[idx] = order;
+    orders[idx] = toSave;
   } else {
-    orders.unshift(order);
+    orders.unshift(toSave);
   }
   localStorage.setItem(KEY, JSON.stringify(orders));
+}
+
+export function getNotificationLog(): NotificationLogEntry[] {
+  try {
+    return JSON.parse(localStorage.getItem(NOTIF_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function addNotificationLog(entry: NotificationLogEntry): void {
+  const log = getNotificationLog();
+  log.unshift(entry);
+  localStorage.setItem(NOTIF_KEY, JSON.stringify(log.slice(0, 100)));
 }
 
 export function updateOrderStatus(orderId: string, status: string): void {
   const orders = getOrders();
   const idx = orders.findIndex((o) => o.orderId === orderId);
   if (idx >= 0) {
+    const oldStatus = orders[idx].status;
     orders[idx].status = status;
     localStorage.setItem(KEY, JSON.stringify(orders));
+    addNotificationLog({
+      orderId,
+      oldStatus,
+      newStatus: status,
+      timestamp: new Date().toISOString(),
+    });
   }
+}
+
+export function updateOrderFull(
+  orderId: string,
+  updates: Partial<OrderData>,
+): void {
+  const orders = getOrders();
+  const idx = orders.findIndex((o) => o.orderId === orderId);
+  if (idx >= 0) {
+    orders[idx] = { ...orders[idx], ...updates };
+    localStorage.setItem(KEY, JSON.stringify(orders));
+  }
+}
+
+export function confirmPayment(orderId: string): void {
+  updateOrderFull(orderId, { paymentConfirmed: true });
 }
 
 export function generateOrderId(): string {
